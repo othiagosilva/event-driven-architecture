@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 
 	"github.com.br/devfullcycle/fc-ms-balances/internal/database"
 	"github.com.br/devfullcycle/fc-ms-balances/internal/usecase/create_balance"
@@ -49,7 +50,7 @@ func main() {
 	go func() {
 		webserver := webserver.NewWebServer(":3003")
 		accountHandler := web.NewWebBalanceHandler(*findAccountUseCase)
-		webserver.AddHandler("/accounts/{account_id}", accountHandler.FindAccount)
+		webserver.AddHandler("/balances/{account_id}", accountHandler.FindAccount)
 		fmt.Println("Server running at port 3003")
 		webserver.Start()
 	}()
@@ -64,32 +65,48 @@ func main() {
 	if err != nil {
 		fmt.Println("error consumer", err.Error())
 	}
+	defer c.Close()
+
 	topics := []string{"balances"}
-	c.SubscribeTopics(topics, nil)
+	if err := c.SubscribeTopics(topics, nil); err != nil {
+		fmt.Println("error subscribe", err.Error())
+	}
 
 	for {
 		msg, err := c.ReadMessage(-1)
-		if err == nil {
-			fmt.Println(string(msg.Value), msg.TopicPartition)
-
-			var event BalanceEvent
-			if err := json.Unmarshal(msg.Value, &event); err != nil {
-				fmt.Println("Error JSON:", err)
-				continue
-			}
-
-			input := create_balance.CreateBalanceInputDTO{
-				AccountID: event.Payload.AccountIDFrom,
-				Balance:   event.Payload.BalanceAccountFrom,
-			}
-			createBalanceUseCase.Execute(input)
-
-			input = create_balance.CreateBalanceInputDTO{
-				AccountID: event.Payload.AccountIDTo,
-				Balance:   event.Payload.BalanceAccountTo,
-			}
-			createBalanceUseCase.Execute(input)
+		if err != nil {
+			log.Printf("Error reading message: %v", err)
+			continue
 		}
-		c.CommitMessage(msg)
+
+		fmt.Println(string(msg.Value), msg.TopicPartition)
+
+		var event BalanceEvent
+		if err := json.Unmarshal(msg.Value, &event); err != nil {
+			log.Println("Error unmarshalling JSON:", err)
+			continue
+		}
+
+		input := create_balance.CreateBalanceInputDTO{
+			AccountID: event.Payload.AccountIDFrom,
+			Balance:   event.Payload.BalanceAccountFrom,
+		}
+		createBalanceUseCase.Execute(input)
+
+		input = create_balance.CreateBalanceInputDTO{
+			AccountID: event.Payload.AccountIDTo,
+			Balance:   event.Payload.BalanceAccountTo,
+		}
+		createBalanceUseCase.Execute(input)
+
+		// Verifique se a mensagem não é nil antes de chamar CommitMessage
+		if msg != nil {
+			_, err = c.CommitMessage(msg)
+			if err != nil {
+				log.Println("Error committing message:", err)
+			}
+		} else {
+			log.Println("Received a nil message")
+		}
 	}
 }
