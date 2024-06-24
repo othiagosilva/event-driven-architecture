@@ -1,4 +1,4 @@
-# Projeto de desafio dos Módulos Micro Serviços e Event Driven Architecture.
+# Projeto de desafio dos Módulos Microsserviços e Event Driven Architecture.
 
 Segue desafio proposto:
 
